@@ -1,0 +1,105 @@
+---
+description: Node.js Sidecar（sidecar/）の matter.js Bridge 実装・アクション実行・通信プロトコル
+globs: ["sidecar/**/*.ts"]
+alwaysApply: false
+---
+
+# Node.js Sidecar（matter.js）
+
+## 役割
+
+- Matter Bridge ノード（Aggregator + BridgedDevice × 10）のホスティング
+- ハブからの ON/OFF コマンドを受信し、macOS アクションを実行
+- Rust Core と stdin/stdout JSON で双方向通信
+
+## Phase 1 TODO（最重要）
+
+`sidecar/src/index.ts` の `// TODO Phase 1:` コメント箇所に matter.js の実際の Bridge 初期化を実装する。
+
+```typescript
+import { ServerNode, Endpoint } from "@matter/main";
+import { AggregatorEndpoint } from "@matter/main/endpoints";
+import { OnOffPluginUnitDevice } from "@matter/main/devices";
+import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors";
+
+const server = await ServerNode.create({ id: "matter-mac-agent" });
+
+const aggregator = new Endpoint(AggregatorEndpoint, { id: "aggregator" });
+await server.add(aggregator);
+
+for (let i = 1; i <= 10; i++) {
+  const device = new Endpoint(
+    OnOffPluginUnitDevice.with(BridgedDeviceBasicInformationServer),
+    {
+      id: `switch-${i}`,
+      bridgedDeviceBasicInformation: {
+        nodeLabel: config.endpoints[i - 1]?.name ?? `仮想スイッチ ${i}`,
+        reachable: true,
+      },
+    }
+  );
+  device.events.onOff.onOff$Changed.on((value: boolean) => {
+    handleSwitchEvent(config, i, value);
+  });
+  await aggregator.add(device);
+}
+
+await server.start();
+
+// ペアリング情報を Rust へ送信
+const { qrPairingCode, manualPairingCode } = server.state.commissioning.pairingCodes;
+sendToRust("qr_code", { qr_payload: qrPairingCode, manual_code: manualPairingCode });
+sendToRust("ready");
+```
+
+## Endpoint ID とスイッチ番号のマッピング
+
+- matter.js の Endpoint ID: **2〜11**（0=Root Node, 1=Aggregator）
+- アプリ内のスイッチ番号: **1〜10**（`config.endpoints[].id`）
+- 変換: `スイッチ番号 = Endpoint ID - 1`
+- `action_result` に渡す `endpoint_id` は matter.js の Endpoint ID（2〜11）
+
+## アクション実行
+
+```typescript
+function executeAction(action: Action, developerMode: boolean): void {
+  switch (action.type) {
+    case "shortcut":
+      execSync(`shortcuts run "${action.name}" <<< "${action.input}"`);
+      break;
+    case "open":
+      execSync(`open "${action.target}"`);
+      break;
+    case "shell":
+      if (!developerMode) throw new Error("shell requires developer_mode");
+      execSync(`bash -c "${action.command}"`);
+      break;
+    case "applescript":
+      if (!developerMode) throw new Error("applescript requires developer_mode");
+      execSync(`osascript -e '${action.script}'`);
+      break;
+  }
+}
+```
+
+**フェイルオープン**: 1つのアクションが失敗しても後続アクションを継続実行する。
+
+## Rust との通信
+
+**stdout → Rust**（`sendToRust` 関数を使う）:
+```typescript
+process.stdout.write(JSON.stringify({ type, payload }) + "\n");
+```
+
+**stdin ← Rust**（改行デリミタで受信）:
+```typescript
+case "config_update": config = msg.payload as Config; break;
+case "shutdown":      server.close().then(() => process.exit(0)); break;
+```
+
+## Sidecar バイナリ化（Phase 1 検証事項）
+
+- `pkg` は Node.js 18 以降で非推奨
+- `@yao-pkg/pkg` または `bun build --compile` を使う
+- `matter.js` の ESM 依存と動的 require の互換性を先に検証すること
+- ビルド成果物は `src-tauri/binaries/matter-sidecar-{target-triple}` に配置

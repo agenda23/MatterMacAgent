@@ -1,0 +1,117 @@
+---
+description: Matter Mac Agent のプロジェクト概要・アーキテクチャ・重要設計判断
+alwaysApply: true
+---
+
+# Matter Mac Agent
+
+macOS を仮想 **Matter Bridge デバイス**として Google Home / Apple Home / Alexa に統合するメニューバー常駐アプリ。LAN 内完全ローカル動作・クラウド不使用。
+
+## 技術スタック
+
+| レイヤー | 技術 | 役割 |
+|---|---|---|
+| フロントエンド | React 19 + TypeScript + Vite | 設定 UI・QRコード表示・マクロエディタ |
+| デスクトップ | Tauri 2 (Rust) | メニューバー常駐・IPC・config.json 読み書き・Sidecar 管理・macOS 権限 |
+| Matter サーバー | Node.js 20 Sidecar + matter.js | Matter Bridge ホスティング・アクション実行 |
+| パッケージマネージャ | **pnpm**（npm / yarn 禁止） | |
+
+## プロジェクト構成
+
+```
+/
+├── src/               # React フロントエンド
+├── src-tauri/         # Rust / Tauri バックエンド
+│   ├── src/lib.rs     # Tauri コマンド定義
+│   └── tauri.conf.json
+├── sidecar/           # Node.js matter.js サーバー（pnpm workspace）
+│   └── src/index.ts   # エントリーポイント
+├── specs/             # 要件定義書・仕様書・設計書
+└── pnpm-workspace.yaml
+```
+
+## アーキテクチャ
+
+3プロセスが Tauri アプリとして統合される。
+
+```
+React UI
+  ↕ Tauri IPC（ポート開放なし・localhost 非公開）
+Rust Core (Tauri)
+  ↕ stdin/stdout JSON メッセージング
+Node.js Sidecar (matter.js)
+  ↕ Matter over Wi-Fi (UDP/TCP/IPv6)
+スマートホームハブ
+```
+
+## Matter Bridge 構成（重要）
+
+本アプリは `matter.js` の **Aggregator デバイスタイプ**を使った **Bridge** として実装する。
+単純なマルチエンドポイントデバイスではなく Bridge を使う理由: Google Home / Apple Home / Alexa の全プラットフォームで各スイッチが独立デバイスとして表示されることが仕様保証されているため。
+
+| Endpoint ID | デバイスタイプ | 役割 |
+|---|---|---|
+| 0 | Root Node | 管理用（必須） |
+| 1 | Aggregator (0x000E) | Bridge Device Type |
+| 2〜11 | BridgedDevice + OnOffPluginUnit (0x010A) | 仮想スイッチ 1〜10 |
+
+**静的エンドポイント**: Endpoint 2〜11 の構成を変えると再ペアリングが発生するため、10スロット固定。スロットへのマクロ割り当てのみ動的に変更する。
+
+## IPC 通信プロトコル
+
+**Rust ↔ Sidecar** — stdin/stdout、改行区切り JSON:
+```
+{ "type": "メッセージ種別", "payload": { ... } }
+```
+
+| 方向 | type | 内容 |
+|---|---|---|
+| Rust → Sidecar | `config_update` | マクロ割り当て変更の即時反映 |
+| Rust → Sidecar | `shutdown` | 正常終了 |
+| Sidecar → Rust | `ready` | Matter サーバー起動完了 |
+| Sidecar → Rust | `qr_code` | ペアリング QRコード・PIN |
+| Sidecar → Rust | `device_status` | ON/OFF 状態変化 |
+| Sidecar → Rust | `action_result` | アクション実行結果・エラー |
+
+## 設定ファイル
+
+`~/Library/Application Support/com.matter-mac-agent/config.json`
+
+```typescript
+type Config = {
+  system: { developer_mode: boolean; auto_start: boolean };
+  endpoints: Array<{
+    id: number;                           // 1〜10 固定
+    name: string;
+    matter_type: "OnOffPluginUnitDevice"; // 将来拡張用・現在固定
+    assigned_macro_id: string | null;
+  }>;
+  macros: Array<{
+    id: string;   // UUID v4
+    name: string;
+    on_actions: Action[];
+    off_actions: Action[];
+  }>;
+};
+
+type Action =
+  | { type: "shortcut";    name: string; input: string }
+  | { type: "open";        target: string }
+  | { type: "shell";       command: string }     // developer_mode のみ
+  | { type: "applescript"; script: string };     // developer_mode のみ
+```
+
+## セキュリティ原則
+
+- `shell` / `applescript` アクションは `developer_mode: true` 時のみ。UI と Sidecar 両側でガードする
+- React ↔ Rust 間は Tauri IPC のみ。localhost ポート開放禁止
+
+## 開発コマンド
+
+```bash
+pnpm install          # 全依存インストール（フロントエンド + sidecar）
+pnpm tauri dev        # 開発起動
+pnpm tauri build      # リリースビルド（.dmg）
+pnpm sidecar:dev      # sidecar 単独起動（matter.js デバッグ）
+pnpm typecheck        # 全 TypeScript 型チェック
+```

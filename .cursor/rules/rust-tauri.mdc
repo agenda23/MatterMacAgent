@@ -1,0 +1,129 @@
+---
+description: Rust / Tauri バックエンド（src-tauri/）の実装パターン・IPC コマンド・Sidecar 管理
+globs: ["src-tauri/**/*.rs", "src-tauri/tauri.conf.json"]
+alwaysApply: false
+---
+
+# Rust / Tauri バックエンド
+
+## アプリ識別子
+
+- Bundle ID: `com.matter-mac-agent`
+- 設定ファイル: `~/Library/Application Support/com.matter-mac-agent/config.json`
+
+## 実装すべき Tauri コマンド
+
+```rust
+// src-tauri/src/lib.rs に追加していく
+
+#[tauri::command]
+async fn get_config(state: tauri::State<'_, AppState>) -> Result<Config, String> {
+    // config.json を読み込んで返す。ファイルがなければ初期値を生成・保存する
+}
+
+#[tauri::command]
+async fn save_config(config: Config, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    // 1. config.json に書き込む
+    // 2. Sidecar に config_update を stdin で送信する
+}
+
+#[tauri::command]
+async fn get_pairing_info(state: tauri::State<'_, AppState>) -> Result<Option<PairingInfo>, String> {
+    // Sidecar から受信した qr_code ペイロードをメモリから返す
+}
+
+#[tauri::command]
+fn get_permissions() -> PermissionStatus {
+    // AXIsProcessTrusted() でアクセシビリティ権限を確認する
+}
+
+#[tauri::command]
+fn open_accessibility_settings() {
+    // open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+}
+```
+
+## AppState の構造
+
+```rust
+struct AppState {
+    config: Mutex<Config>,
+    pairing_info: Mutex<Option<PairingInfo>>,
+    sidecar_child: Mutex<Option<CommandChild>>,
+}
+```
+
+## Sidecar の起動（tauri-plugin-shell）
+
+```rust
+use tauri_plugin_shell::ShellExt;
+
+let sidecar = app.shell().sidecar("matter-sidecar")?;
+let (mut rx, child) = sidecar.spawn()?;
+
+tokio::spawn(async move {
+    while let Some(event) = rx.recv().await {
+        match event {
+            CommandEvent::Stdout(line) => dispatch_sidecar_message(&app_handle, &line),
+            CommandEvent::Terminated(_) => {
+                app_handle.emit("sidecar-offline", ()).ok();
+            }
+            _ => {}
+        }
+    }
+});
+```
+
+## Sidecar へのメッセージ送信
+
+```rust
+fn send_to_sidecar(child: &mut CommandChild, msg_type: &str, payload: serde_json::Value) {
+    let msg = serde_json::json!({ "type": msg_type, "payload": payload });
+    let line = msg.to_string() + "\n";
+    child.write(line.as_bytes()).ok();
+}
+```
+
+## Sidecar から受信するメッセージ処理
+
+```rust
+fn dispatch_sidecar_message(app: &AppHandle, line: &[u8]) {
+    let msg: serde_json::Value = serde_json::from_slice(line).unwrap_or_default();
+    match msg["type"].as_str() {
+        Some("ready")         => { /* サーバー起動完了 */ }
+        Some("qr_code")       => { /* pairing_info をメモリに保存 */ }
+        Some("device_status") => { app.emit("device-status-changed", &msg["payload"]).ok(); }
+        Some("action_result") => { /* エラーなら action-error イベントを emit */ }
+        _ => {}
+    }
+}
+```
+
+## macOS 権限チェック
+
+```rust
+// Cargo.toml に追加: accessibility-sys = "0.1"
+#[cfg(target_os = "macos")]
+fn check_accessibility() -> bool {
+    unsafe { accessibility_sys::AXIsProcessTrusted() }
+}
+```
+
+## 必要な Tauri プラグイン（Cargo.toml）
+
+```toml
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-shell = "2"       # Sidecar 管理
+tauri-plugin-autostart = "2"   # ログイン時自動起動
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+accessibility-sys = "0.1"      # アクセシビリティ権限チェック
+```
+
+## tauri.conf.json の重要設定
+
+- `productName`: "Matter Mac Agent"
+- `identifier`: "com.matter-mac-agent"
+- `bundle.externalBin`: `["binaries/matter-sidecar"]`（Sidecar バイナリ登録時に追加）

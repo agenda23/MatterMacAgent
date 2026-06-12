@@ -1,0 +1,72 @@
+---
+description: React フロントエンド（src/）のコーディングルールと Tauri IPC の使い方
+globs: ["src/**/*.ts", "src/**/*.tsx"]
+alwaysApply: false
+---
+
+# フロントエンド（React + TypeScript）
+
+## コンポーネント構成
+
+```
+App
+├── TrayPopover          # メニューバーアイコンのポップオーバー
+└── DashboardWindow      # メインウィンドウ（タブ構成）
+    ├── HomeTab          # QRコード・権限ステータス・サーバー状態
+    ├── SwitchTab        # 10スイッチ一覧・マクロ割り当て
+    ├── MacroTab         # マクロ一覧
+    │   └── MacroEditor  # マクロ作成・編集モーダル
+    └── SettingsTab      # 自動起動・開発者モード
+```
+
+## Tauri IPC の使い方
+
+Rust Core への呼び出しは `@tauri-apps/api` の `invoke` を使う。
+
+```typescript
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+
+// コマンド呼び出し
+const config = await invoke<Config>("get_config");
+await invoke("save_config", { config });
+const info = await invoke<PairingInfo | null>("get_pairing_info");
+const perms = await invoke<PermissionStatus>("get_permissions");
+await invoke("open_accessibility_settings");
+
+// Rust からのイベント受信
+const unlisten = await listen<{ endpoint_id: number; state: boolean }>(
+  "device-status-changed",
+  (event) => { /* handle */ }
+);
+```
+
+## 利用可能な Tauri IPC コマンド
+
+| コマンド名 | 引数 | 戻り値 | 説明 |
+|---|---|---|---|
+| `get_config` | なし | `Config` | 設定取得 |
+| `save_config` | `{ config: Config }` | `void` | 設定保存 |
+| `get_pairing_info` | なし | `PairingInfo \| null` | QRコード・PIN 取得 |
+| `get_permissions` | なし | `PermissionStatus` | macOS 権限状態 |
+| `open_accessibility_settings` | なし | `void` | システム設定を開く |
+
+## Tauri イベント（Rust → React）
+
+| イベント名 | ペイロード |
+|---|---|
+| `device-status-changed` | `{ endpoint_id: number, state: boolean }` |
+| `action-error` | `{ endpoint_id: number, error: string }` |
+| `sidecar-offline` | `{}` |
+
+## 型定義
+
+共有型は `src/types.ts` に集約する。`Config`, `Action`, `Macro`, `Endpoint` は仕様書の TypeScript 型定義と一致させる。
+
+## 開発者モードのガード
+
+`developer_mode: false` の場合、マクロエディタで `shell` / `applescript` タイプの**選択肢を非表示**にする。API 側（Sidecar）にも同じガードがあるが、UI でも防ぐ。
+
+## QRコード表示
+
+`qrcode.react` を使い、`get_pairing_info` で取得した `qr_payload` 文字列から画像をレンダリングする。画像生成はフロントエンドの責務（Rust 側は文字列のみ保持）。
