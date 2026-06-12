@@ -19,7 +19,7 @@ alwaysApply: false
 ```typescript
 import { ServerNode, Endpoint } from "@matter/main";
 import { AggregatorEndpoint } from "@matter/main/endpoints";
-import { OnOffPluginUnitDevice } from "@matter/main/devices";
+import { OnOffPlugInUnitDevice } from "@matter/main/devices/OnOffPlugInUnitDevice";
 import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors";
 
 const server = await ServerNode.create({ id: "matter-mac-agent" });
@@ -29,7 +29,7 @@ await server.add(aggregator);
 
 for (let i = 1; i <= 10; i++) {
   const device = new Endpoint(
-    OnOffPluginUnitDevice.with(BridgedDeviceBasicInformationServer),
+    OnOffPlugInUnitDevice.with(BridgedDeviceBasicInformationServer),
     {
       id: `switch-${i}`,
       bridgedDeviceBasicInformation: {
@@ -38,7 +38,8 @@ for (let i = 1; i <= 10; i++) {
       },
     }
   );
-  device.events.onOff.onOff$Changed.on((value: boolean) => {
+  // NOTE: $Change (not $Changed) — verified against @matter/main@0.12.6 source
+  device.events.onOff.onOff$Change.on((value: boolean) => {
     handleSwitchEvent(config, i, value);
   });
   await aggregator.add(device);
