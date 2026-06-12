@@ -1,5 +1,6 @@
 import { ConfigProvider, useConfig } from "./context/ConfigContext";
 import { Dashboard } from "./components/Dashboard";
+import { PermissionBanner } from "./components/PermissionBanner";
 import { ToastContainer } from "./components/Toast";
 import "./App.css";
 
@@ -12,6 +13,7 @@ function AppContent() {
 
   return (
     <>
+      <PermissionBanner />
       <Dashboard />
       <ToastContainer />
     </>

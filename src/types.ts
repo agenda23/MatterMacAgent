@@ -44,3 +44,7 @@ export type ActionError = {
   endpoint_id: number;
   error: string;
 };
+
+export type CommissioningStatus = {
+  commissioned: boolean;
+};

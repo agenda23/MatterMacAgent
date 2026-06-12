@@ -6,10 +6,19 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 pub fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
+    let matter_storage = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("matter");
+
+    std::fs::create_dir_all(&matter_storage).map_err(|e| e.to_string())?;
+
     let sidecar = app
         .shell()
         .sidecar("matter-sidecar")
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .env("MATTER_PATH_ROOT", matter_storage.to_string_lossy().to_string());
 
     let (mut rx, child) = sidecar.spawn().map_err(|e| e.to_string())?;
 
@@ -71,8 +80,13 @@ fn dispatch_sidecar_message(app: &AppHandle, line: &[u8]) {
             let state = app.state::<AppState>();
             *state.sidecar_online.lock().unwrap() = true;
 
+            if let Some(commissioned) = payload.get("commissioned").and_then(|v| v.as_bool()) {
+                *state.commissioned.lock().unwrap() = commissioned;
+            }
+
             let config = state.config.lock().unwrap().clone();
-            if let Some(ref mut child) = *state.sidecar_child.lock().unwrap() {
+            let mut child_guard = state.sidecar_child.lock().unwrap();
+            if let Some(ref mut child) = *child_guard {
                 let _ = send_config_update(child, &config);
             }
         }

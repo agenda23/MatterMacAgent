@@ -6,16 +6,19 @@ import type { PairingInfo, PermissionStatus } from "../types";
 export function HomeTab() {
   const [online, setOnline] = useState(false);
   const [pairing, setPairing] = useState<PairingInfo | null>(null);
+  const [commissioned, setCommissioned] = useState(false);
   const [permissions, setPermissions] = useState<PermissionStatus | null>(null);
 
   const refresh = async () => {
-    const [status, info, perms] = await Promise.all([
+    const [status, info, comm, perms] = await Promise.all([
       invoke<boolean>("get_sidecar_status"),
       invoke<PairingInfo | null>("get_pairing_info"),
+      invoke<boolean>("get_commissioning_status"),
       invoke<PermissionStatus>("get_permissions"),
     ]);
     setOnline(status);
     setPairing(info);
+    setCommissioned(comm);
     setPermissions(perms);
   };
 
@@ -42,7 +45,14 @@ export function HomeTab() {
 
       <section className="card">
         <h2>ペアリング</h2>
-        {pairing ? (
+        {commissioned ? (
+          <div className="paired-status">
+            <span className="badge badge-ok">ペアリング済み</span>
+            <p className="hint">
+              スマートホームハブとの接続が確立されています。再起動後も自動的に再接続されます。
+            </p>
+          </div>
+        ) : pairing ? (
           <div className="pairing-info">
             <div className="qr-wrapper">
               <QRCodeSVG value={pairing.qr_payload} size={200} />

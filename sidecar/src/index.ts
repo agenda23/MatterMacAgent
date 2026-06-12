@@ -266,7 +266,7 @@ async function main(): Promise<void> {
     discriminator: commissioning.discriminator,
     pin: commissioning.passcode,
   });
-  sendToRust("ready");
+  sendToRust("ready", { commissioned: commissioning.commissioned });
 }
 
 main().catch((err) => {
