@@ -32,8 +32,15 @@ export type Config = {
 export type PairingInfo = {
   qr_payload: string;
   manual_code: string;
+  discriminator: number;
+  pin: number;
 };
 
 export type PermissionStatus = {
   accessibility: boolean;
+};
+
+export type ActionError = {
+  endpoint_id: number;
+  error: string;
 };

@@ -3,24 +3,36 @@
  *
  * Hosts a Matter Bridge node (Aggregator + 10 BridgedDevice endpoints)
  * and executes macOS actions triggered by ON/OFF commands from smart home hubs.
- *
- * Communication with Rust Core:
- *   stdin  <- Rust: JSON messages (config_update, shutdown)
- *   stdout -> Rust: JSON messages (ready, qr_code, device_status, action_result)
  */
 
+import "@matter/nodejs";
+import { Endpoint, ServerNode } from "@matter/main";
+import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors/bridged-device-basic-information";
+import { OnOffPlugInUnitDevice } from "@matter/main/devices/on-off-plug-in-unit";
+import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
 import { execSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type ActionType = "shortcut" | "open" | "shell" | "applescript";
-
-interface ShortcutAction { type: "shortcut"; name: string; input: string }
-interface OpenAction     { type: "open";     target: string }
-interface ShellAction    { type: "shell";    command: string }
-interface AppleScriptAction { type: "applescript"; script: string }
+interface ShortcutAction {
+  type: "shortcut";
+  name: string;
+  input: string;
+}
+interface OpenAction {
+  type: "open";
+  target: string;
+}
+interface ShellAction {
+  type: "shell";
+  command: string;
+}
+interface AppleScriptAction {
+  type: "applescript";
+  script: string;
+}
 type Action = ShortcutAction | OpenAction | ShellAction | AppleScriptAction;
 
 interface Macro {
@@ -30,22 +42,26 @@ interface Macro {
   off_actions: Action[];
 }
 
-interface Endpoint {
+interface EndpointConfig {
   id: number;
   name: string;
   matter_type: "OnOffPluginUnitDevice";
   assigned_macro_id: string | null;
 }
 
-interface SystemConfig {
-  developer_mode: boolean;
-  auto_start: boolean;
+interface Config {
+  system: {
+    developer_mode: boolean;
+    auto_start: boolean;
+  };
+  endpoints: EndpointConfig[];
+  macros: Macro[];
 }
 
-interface Config {
-  system: SystemConfig;
-  endpoints: Endpoint[];
+interface ConfigUpdatePayload {
+  endpoints: EndpointConfig[];
   macros: Macro[];
+  developer_mode: boolean;
 }
 
 interface RustMessage {
@@ -53,8 +69,11 @@ interface RustMessage {
   payload: unknown;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MatterEndpoint = Endpoint<any>;
+
 // ---------------------------------------------------------------------------
-// IPC helpers (stdout -> Rust)
+// IPC helpers
 // ---------------------------------------------------------------------------
 
 function sendToRust(type: string, payload: unknown = {}): void {
@@ -74,11 +93,15 @@ function executeAction(action: Action, developerMode: boolean): void {
       execSync(`open "${action.target}"`);
       break;
     case "shell":
-      if (!developerMode) throw new Error("shell action requires developer_mode");
+      if (!developerMode) {
+        throw new Error("shell action requires developer_mode");
+      }
       execSync(`bash -c "${action.command}"`);
       break;
     case "applescript":
-      if (!developerMode) throw new Error("applescript action requires developer_mode");
+      if (!developerMode) {
+        throw new Error("applescript action requires developer_mode");
+      }
       execSync(`osascript -e '${action.script}'`);
       break;
   }
@@ -89,7 +112,6 @@ async function handleSwitchEvent(
   switchIndex: number,
   isOn: boolean
 ): Promise<void> {
-  // Endpoint ID (2-11) maps to switch index (1-10); we receive switchIndex (1-10)
   const endpointId = switchIndex + 1;
   const endpoint = config.endpoints.find((e) => e.id === switchIndex);
   if (!endpoint?.assigned_macro_id) return;
@@ -97,13 +119,18 @@ async function handleSwitchEvent(
   const macro = config.macros.find((m) => m.id === endpoint.assigned_macro_id);
   if (!macro) return;
 
+  sendToRust("device_status", { endpoint_id: endpointId, state: isOn });
+
   const actions = isOn ? macro.on_actions : macro.off_actions;
   for (let i = 0; i < actions.length; i++) {
     try {
       executeAction(actions[i], config.system.developer_mode);
-      sendToRust("action_result", { endpoint_id: endpointId, action_index: i, success: true });
+      sendToRust("action_result", {
+        endpoint_id: endpointId,
+        action_index: i,
+        success: true,
+      });
     } catch (err) {
-      // Fail-open: continue executing remaining actions
       sendToRust("action_result", {
         endpoint_id: endpointId,
         action_index: i,
@@ -111,6 +138,40 @@ async function handleSwitchEvent(
         error: String(err),
       });
     }
+  }
+}
+
+function defaultConfig(): Config {
+  return {
+    system: { developer_mode: false, auto_start: true },
+    endpoints: Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      name: `仮想スイッチ ${i + 1}`,
+      matter_type: "OnOffPluginUnitDevice" as const,
+      assigned_macro_id: null,
+    })),
+    macros: [],
+  };
+}
+
+function applyConfigUpdate(config: Config, payload: ConfigUpdatePayload): Config {
+  return {
+    ...config,
+    system: { ...config.system, developer_mode: payload.developer_mode },
+    endpoints: payload.endpoints,
+    macros: payload.macros,
+  };
+}
+
+async function updateSwitchLabels(
+  devices: MatterEndpoint[],
+  endpoints: EndpointConfig[]
+): Promise<void> {
+  for (let i = 0; i < devices.length; i++) {
+    const name = endpoints[i]?.name ?? `仮想スイッチ ${i + 1}`;
+    await devices[i].set({
+      bridgedDeviceBasicInformation: { nodeLabel: name, reachable: true },
+    } as Record<string, unknown>);
   }
 }
 
@@ -142,42 +203,68 @@ function listenToRust(onMessage: (msg: RustMessage) => void): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  // TODO Phase 1: Replace this stub with actual matter.js Bridge initialization.
-  // The stub below demonstrates the communication protocol with Rust Core.
+  let config = defaultConfig();
+  const switchDevices: MatterEndpoint[] = [];
 
-  let config: Config = {
-    system: { developer_mode: false, auto_start: true },
-    endpoints: Array.from({ length: 10 }, (_, i) => ({
-      id: i + 1,
-      name: `仮想スイッチ ${i + 1}`,
-      matter_type: "OnOffPluginUnitDevice",
-      assigned_macro_id: null,
-    })),
-    macros: [],
-  };
+  const server = await ServerNode.create({ id: "matter-mac-agent" });
 
-  // Listen for messages from Rust Core
+  const aggregator = new Endpoint(AggregatorEndpoint, { id: "aggregator" });
+  await server.add(aggregator);
+
+  for (let i = 1; i <= 10; i++) {
+    const device = (await aggregator.add(
+      OnOffPlugInUnitDevice.with(BridgedDeviceBasicInformationServer),
+      {
+        id: `switch-${i}`,
+        bridgedDeviceBasicInformation: {
+          nodeLabel: config.endpoints[i - 1]?.name ?? `仮想スイッチ ${i}`,
+          reachable: true,
+        },
+      }
+    )) as MatterEndpoint;
+    switchDevices.push(device);
+  }
+
   listenToRust((msg) => {
     switch (msg.type) {
-      case "config_update":
-        config = msg.payload as Config;
+      case "config_update": {
+        config = applyConfigUpdate(
+          config,
+          msg.payload as ConfigUpdatePayload
+        );
+        void updateSwitchLabels(switchDevices, config.endpoints);
         break;
+      }
       case "shutdown":
-        process.exit(0);
+        void server.close().then(() => process.exit(0));
         break;
     }
   });
 
-  // TODO: Initialize matter.js ServerNode with Aggregator + 10 BridgedDevices here.
-  // On each device's onOff$Changed event, call handleSwitchEvent(config, switchIndex, value).
+  await server.start();
 
-  // Notify Rust that the sidecar is ready
-  // TODO: Replace stub QR payload with actual matter.js pairingCodes
+  for (let i = 0; i < switchDevices.length; i++) {
+    const switchIndex = i + 1;
+    const onOffEvents = switchDevices[i].events.onOff;
+    if (!onOffEvents) {
+      process.stderr.write(
+        `Failed to bind onOff events for switch ${switchIndex}\n`
+      );
+      continue;
+    }
+    onOffEvents.onOff$Change.on((value: boolean) => {
+      void handleSwitchEvent(config, switchIndex, value);
+    });
+  }
+
+  const commissioning = server.state.commissioning;
+  const { qrPairingCode, manualPairingCode } = commissioning.pairingCodes;
+
   sendToRust("qr_code", {
-    qr_payload: "MT:STUB-QR-NOT-IMPLEMENTED",
-    manual_code: "000-00-000",
-    discriminator: 3840,
-    pin: 20202021,
+    qr_payload: qrPairingCode,
+    manual_code: manualPairingCode,
+    discriminator: commissioning.discriminator,
+    pin: commissioning.passcode,
   });
   sendToRust("ready");
 }
