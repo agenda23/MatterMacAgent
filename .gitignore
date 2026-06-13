@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 sidecar/.cache
+sidecar/.pkg-cache
 src-tauri/binaries/sidecar-runtime
 src-tauri/binaries/sidecar-runtime.tar.gz
 *.local
