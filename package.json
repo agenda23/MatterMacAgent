@@ -8,11 +8,12 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:dev": "pnpm tauri dev",
+    "tauri:dev": "pnpm sidecar:build:stub && pnpm tauri dev",
     "tauri:build": "pnpm tauri build",
     "tauri:build:universal": "pnpm tauri build --target universal-apple-darwin",
     "sidecar:dev": "pnpm --filter @matter-mac-agent/sidecar dev",
     "sidecar:build": "pnpm --filter @matter-mac-agent/sidecar build",
+    "sidecar:build:stub": "pnpm --filter @matter-mac-agent/sidecar build:stub",
     "typecheck": "tsc --noEmit && pnpm --filter @matter-mac-agent/sidecar typecheck"
   },
   "dependencies": {

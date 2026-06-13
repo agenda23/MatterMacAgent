@@ -10,7 +10,7 @@ import { Endpoint, ServerNode } from "@matter/main";
 import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors/bridged-device-basic-information";
 import { OnOffPlugInUnitDevice } from "@matter/main/devices/on-off-plug-in-unit";
 import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,22 +87,24 @@ function sendToRust(type: string, payload: unknown = {}): void {
 function executeAction(action: Action, developerMode: boolean): void {
   switch (action.type) {
     case "shortcut":
-      execSync(`shortcuts run "${action.name}" <<< "${action.input}"`);
+      execFileSync("/usr/bin/shortcuts", ["run", action.name], {
+        ...(action.input ? { input: action.input } : {}),
+      });
       break;
     case "open":
-      execSync(`open "${action.target}"`);
+      execFileSync("/usr/bin/open", [action.target]);
       break;
     case "shell":
       if (!developerMode) {
         throw new Error("shell action requires developer_mode");
       }
-      execSync(`bash -c "${action.command}"`);
+      execFileSync("/bin/zsh", ["-c", action.command]);
       break;
     case "applescript":
       if (!developerMode) {
         throw new Error("applescript action requires developer_mode");
       }
-      execSync(`osascript -e '${action.script}'`);
+      execFileSync("/usr/bin/osascript", ["-e", action.script]);
       break;
   }
 }
@@ -252,13 +254,28 @@ async function main(): Promise<void> {
       );
       continue;
     }
-    onOffEvents.onOff$Change.on((value: boolean) => {
+    const onOffChange = onOffEvents.onOff$Changed;
+    if (!onOffChange) {
+      process.stderr.write(
+        `Failed to bind onOff$Changed for switch ${switchIndex}\n`
+      );
+      continue;
+    }
+    onOffChange.on((value: boolean) => {
       void handleSwitchEvent(config, switchIndex, value);
     });
   }
 
   const commissioning = server.state.commissioning;
   const { qrPairingCode, manualPairingCode } = commissioning.pairingCodes;
+  const commissioned = server.lifecycle.isCommissioned;
+
+  server.lifecycle.commissioned?.on(() => {
+    sendToRust("commissioning_status", { commissioned: true });
+  });
+  server.lifecycle.decommissioned?.on(() => {
+    sendToRust("commissioning_status", { commissioned: false });
+  });
 
   sendToRust("qr_code", {
     qr_payload: qrPairingCode,
@@ -266,7 +283,7 @@ async function main(): Promise<void> {
     discriminator: commissioning.discriminator,
     pin: commissioning.passcode,
   });
-  sendToRust("ready", { commissioned: commissioning.commissioned });
+  sendToRust("ready", { commissioned });
 }
 
 main().catch((err) => {

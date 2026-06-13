@@ -11,8 +11,9 @@
 | Phase 1 | Node.js Sidecar — matter.js Bridge 実装 | ✅ 完了 |
 | Phase 2 | Rust/Tauri コア — IPC・設定・トレイ | ✅ 完了 |
 | Phase 3 | React UI — 設定画面・マクロエディタ | ✅ 完了 |
-| Phase 4 | Sidecar バイナリ化・配布ビルド | 🔶 一部対応 |
-| Phase 5 | コード署名・公証・リリース | ❌ 未着手 |
+| Phase 3.5 | UI デザインリファイン（サイドバーレイアウト 案B） | ✅ 完了 |
+| Phase 4 | Sidecar バイナリ化・配布ビルド | ✅ 完了（ランタイム同梱方式） |
+| Phase 5 | コード署名・公証・リリース | ❌ スコープ外 |
 
 ---
 
@@ -24,16 +25,15 @@
 |---|---|---|
 | ServerNode + AggregatorEndpoint 起動 | ✅ | `ServerNode.create({ id: "matter-mac-agent" })` |
 | OnOffPlugInUnitDevice × 10 Bridge 子デバイス | ✅ | BridgedDeviceBasicInformationServer 付き |
-| ON/OFF イベント購読 (`onOff$Change`) | ✅ | `server.start()` 後にバインド |
+| ON/OFF イベント購読 (`onOff$Changed`) | ✅ | `server.start()` 後にバインド。null チェック付き |
 | マクロアクション実行（shortcut / open） | ✅ | `execSync` 経由 |
 | マクロアクション実行（shell / applescript） | ✅ | `developer_mode` ガード付き |
 | config_update ホットリロード | ✅ | `updateSwitchLabels` でデバイス名を動的更新 |
 | stdin/stdout IPC（Rust との双方向通信） | ✅ | 改行デリミタ JSON |
 | `qr_code` メッセージ送信 | ✅ | qrPairingCode・manualPairingCode・discriminator・pin |
-| `ready` メッセージ送信 | ✅ | `commissioned` フラグは **未送信**（→ 既知の課題） |
+| `ready` メッセージ送信 | ✅ | `{ commissioned: server.lifecycle.isCommissioned }` を含む |
+| `commissioning_status` イベント送信 | ✅ | `server.lifecycle.commissioned/decommissioned` フックで通知 |
 | Matter 永続ストレージ | ✅ | `MATTER_PATH_ROOT` 環境変数経由 |
-
-**既知の課題**: `ready` ペイロードに `commissioned: boolean` が含まれていないため、再起動後も Rust 側の `commissioned` 状態が `false` のまま。`server.lifecycle.isCommissioned` 相当の値を確認してから送信する必要がある。
 
 ---
 
@@ -47,8 +47,7 @@
 | PairingInfo 型（qr_payload / manual_code / discriminator / pin） | ✅ |
 | PermissionStatus 型 | ✅ |
 | `Default::default()` — Endpoint 1〜10 の初期設定生成 | ✅ |
-| `load_or_create` — config.json 読込・初回生成 | ✅ |
-| `save` — 親ディレクトリ自動作成込みで書き込み | ✅ |
+| `load_or_create` / `save` | ✅ |
 
 ### `src-tauri/src/state.rs`
 
@@ -65,9 +64,11 @@
 | 機能 | 状態 |
 |---|---|
 | `spawn_sidecar` — MATTER_PATH_ROOT 設定・起動・受信ループ | ✅ |
-| `dispatch_sidecar_message` — ready / qr_code / device_status / action_result 処理 | ✅ |
-| `ready` 受信時に config_update を即時送信 | ✅ |
-| `action_result` エラー時に `action-error` イベント emit | ✅ |
+| `ready` 受信 — `commissioned` 更新 + `commissioning-changed` emit + config_update 送信 | ✅ |
+| `qr_code` 受信 — PairingInfo メモリ保存 | ✅ |
+| `device_status` 受信 — `device-status-changed` emit | ✅ |
+| `action_result` エラー受信 — `action-error` emit | ✅ |
+| `commissioning_status` 受信 — `commissioned` 更新 + `commissioning-changed` emit | ✅ |
 | `send_config_update` / `send_shutdown` | ✅ |
 
 ### `src-tauri/src/tray.rs`
@@ -99,6 +100,17 @@
 | `--minimized` 起動引数でウィンドウ非表示起動 | ✅ |
 | アプリ終了時に Sidecar `shutdown` 送信 | ✅ |
 
+### `src-tauri/Cargo.toml`
+
+| クレート | 備考 |
+|---|---|
+| `tauri` — `tray-icon` + `macos-private-api` | ✅ |
+| `tauri-plugin-shell` / `tauri-plugin-autostart` / `tauri-plugin-positioner` | ✅ |
+| `tauri-plugin-opener` | ✅ |
+| `tokio` / `serde` / `serde_json` | ✅ |
+| `accessibility-sys` | ✅ |
+| `time = "=0.3.47"` | ✅ cookie 0.18 との E0119 競合を回避するバージョンピン |
+
 ---
 
 ## Phase 3: React UI
@@ -115,27 +127,67 @@
 | コンポーネント | 機能 | 状態 |
 |---|---|---|
 | `App.tsx` | ConfigProvider + ToastContainer のルート | ✅ |
-| `Dashboard.tsx` | ホーム / スイッチ / マクロ / 設定 タブナビゲーション | ✅ |
-| `HomeTab.tsx` | Matter サーバー状態・ペアリング済み表示・QRコード・権限確認 | ✅ |
-| `SwitchTab.tsx` | 10スイッチグリッド・名前編集・マクロ割り当てセレクト | ✅ |
-| `MacroTab.tsx` | マクロ一覧・新規作成・編集・削除（割り当て自動解除） | ✅ |
+| `Dashboard.tsx` | タブナビゲーション（SVG アイコン付き） | ✅ |
+| `HomeTab.tsx` | Matter サーバー状態・QR+メタデータ・権限・commissioning-changed リッスン | ✅ |
+| `SwitchTab.tsx` | 10スイッチグリッド・名前編集・マクロ割り当て・デバイス状態トグル | ✅ |
+| `MacroTab.tsx` | マクロ一覧・CRUD・エンプティステート | ✅ |
 | `MacroEditor.tsx` | ON/OFF アクションリスト・モーダルエディタ | ✅ |
 | `ActionEditor.tsx` | 4種アクション切り替え・開発者モード非表示ガード | ✅ |
-| `SettingsTab.tsx` | 自動起動トグル・開発者モードトグル（有効化確認ダイアログ） | ✅ |
+| `SettingsTab.tsx` | 1枚カード + ディバイダー形式のグループ設定 | ✅ |
 | `Toast.tsx` | `action-error` / `sidecar-offline` の5秒トースト | ✅ |
 | `PermissionBanner.tsx` | アクセシビリティ未付与時のバナー（後で閉じ可能） | ✅ |
 
 ---
 
+## Phase 3.5: UI デザインリファイン
+
+デザイン提案（`designsystem/Design System.zip`）をもとに実装。
+
+### 変更内容
+
+| 変更 | 詳細 |
+|---|---|
+| アクセントカラー | `#007aff`（青）→ `#0E9E73`（ティール） |
+| CSS カスタムプロパティ化 | 全カラー・シャドウ・ボーダーを変数で管理 |
+| ダークモード対応 | `@media (prefers-color-scheme: dark)` で全トークン再定義。アクセント `#30D69B` |
+| カードスタイル | `border-radius: 13px`・`0.5px` ヘアラインボーダー・デュアルシャドウ |
+| トグルサイズ | `48×28px` → `38×23px` |
+| フォント | Hiragino Sans / Yu Gothic を日本語フォールバックに追加 |
+| Dashboard レイアウト | トップタブ（案A）→ サイドバー（案B）に変更。196px固定サイドバー + コンテンツエリア |
+| Dashboard ロゴ | サイドバー上部にボルトアイコン + "Matter / Mac Agent" テキスト |
+| Dashboard サーバー状態 | サイドバー下部にステータスドット（緑/グレー） + テキスト |
+| Dashboard ナビ | アクティブ項目はアクセントカラー背景 + 白テキスト |
+| コンテンツヘッダー | 50px 固定高さ・ページタイトル表示・ハーレインボーダー |
+| HomeTab | Matter サーバーカード水平レイアウト（アイコンボックス付き）・QR+メタデータ横並び・コピーボタン |
+| SwitchTab | スイッチ番号バッジ（26×26、accentSoft 背景）・device-status-changed リアルタイムトグル表示 |
+| MacroTab | エンプティステート（アイコン + タイトル + 説明 + ダッシュボーダー） |
+| SettingsTab | 2項目を1枚カードにまとめ、ディバイダー区切りのグループ形式 |
+
+---
+
 ## Phase 4: ビルド・配布
+
+### Sidecar 配布方式（`@yao-pkg/pkg` は不採用）
+
+`@yao-pkg/pkg` は matter.js の `#node` import maps と非互換のため、**ランタイム同梱ランチャー方式**を採用。
 
 | 項目 | 状態 | 備考 |
 |---|---|---|
-| `sidecar/scripts/bundle.js` | ✅ | dev 用シェルスクリプトスタブを生成 |
-| `src-tauri/binaries/matter-sidecar-aarch64-apple-darwin` | ✅ | dev 用スタブ（pnpm + tsx 経由） |
-| `src-tauri/binaries/matter-sidecar-x86_64-apple-darwin` | ❌ | Intel Mac 対応スタブ未生成 |
+| `sidecar/scripts/bundle.js` | ✅ | esbuild バンドル + pnpm deploy + Node.js バイナリ同梱 + tar.gz 生成 |
+| `matter-sidecar-aarch64-apple-darwin` | ✅ | シェルランチャー（初回起動時に tar 展開してキャッシュ） |
+| `matter-sidecar-x86_64-apple-darwin` | ✅ | 同上（aarch64 ホストからのクロスビルド時はシステム Node フォールバック） |
+| `sidecar-runtime.tar.gz` | ✅ | Tauri `resources` に 1 ファイルとして同梱（20k ファイル glob 回避） |
+| 開発用スタブ (`pnpm sidecar:build:stub`) | ✅ | pnpm + tsx ラッパー（`--stub` フラグ） |
+| `tauri.conf.json` — `resources` に `sidecar-runtime.tar.gz` 登録 | ✅ | |
 | `tauri.conf.json` — `beforeBuildCommand` に `sidecar:build` 組み込み | ✅ | |
-| Sidecar 本番バイナリ化（`@yao-pkg/pkg` or `bun build --compile`） | ❌ | matter.js ESM 依存との互換性検証が必要 |
+
+### ビルドコマンド
+
+```bash
+pnpm sidecar:build:stub   # 開発用（tauri dev）
+pnpm sidecar:build        # 配布用（esbuild + Node.js 同梱 tar.gz）
+pnpm tauri build          # .dmg / .app 生成
+```
 
 ---
 
@@ -143,10 +195,9 @@
 
 | 項目 | 状態 |
 |---|---|
-| Apple Developer 証明書取得 | ❌ |
-| Tauri の `signingIdentity` 設定 | ❌ |
-| `xcrun notarytool` による公証 | ❌ |
-| Gatekeeper 通過確認 | ❌ |
+| Apple Developer 証明書取得 | ❌ スコープ外 |
+| Tauri の `signingIdentity` 設定 | ❌ スコープ外 |
+| `xcrun notarytool` による公証 | ❌ スコープ外 |
 
 ---
 
@@ -154,21 +205,21 @@
 
 | 優先度 | 課題 | 詳細 |
 |---|---|---|
-| 高 | `commissioned` フラグ未送信 | Sidecar 起動時に matter.js のコミッショニング済み状態を確認し、`ready` ペイロードに含める |
-| 高 | Intel Mac スタブ未生成 | `bundle.js` に x86_64 ターゲットを追加するだけ（スタブは aarch64 と同内容でよい） |
-| 中 | Sidecar 本番バイナリ化 | `bun build --compile` の matter.js ESM 互換性検証。`@matter/nodejs` の動的 import が問題になる可能性あり |
-| 中 | アプリアイコン未設定 | Tauri デフォルトアイコンのまま。.icns/.ico 作成が必要 |
-| 低 | エラーログ収集 | Sidecar の stderr を Rust 経由で保存/表示する仕組みが未実装 |
-| 低 | ライトモード/ダークモード対応 | CSS が固定ライトテーマのみ |
+| 高 | 実機ペアリング・ON/OFF 動作確認 | Google Home / Apple Home での E2E テスト未実施 |
+| 中 | アプリアイコン未設定 | Tauri デフォルトアイコンのまま。`.icns` / `.ico` 作成が必要 |
+| 低 | エラーログ収集 | Sidecar stderr を Rust 経由で保存・表示する仕組みが未実装 |
+| 低 | Intel Mac クロスビルド | aarch64 ホストから x86_64 ランチャーを生成する際、Node バイナリが同梱されずシステム Node 依存になる |
 
 ---
 
-## `pnpm tauri dev` での動作確認状況
+## 検証状況（2026-06-13）
 
 | 確認項目 | 状態 |
 |---|---|
-| TypeScript 型チェック全通過 | ✅ |
-| Rust クレート解決（`cargo fetch`） | ✅ |
-| Sidecar スタブ（tsx）でのローカル起動 | 未確認（Tauri dev 起動テスト未実施） |
-| Google Home / Apple Home でのペアリング | 未確認 |
+| TypeScript 型チェック（フロントエンド + sidecar） | ✅ |
+| Rust `cargo fetch` / `cargo check` | ✅ |
+| Sidecar スタブ（tsx）起動・IPC | ✅ `ready` / `qr_code` 送信確認 |
+| Sidecar ランタイムランチャー起動 | ✅ matter.js サーバー起動確認 |
+| UI デザインリファイン（CSS 変数 + ダークモード） | ✅ 型チェック通過 |
+| Google Home / Apple Home ペアリング | 未確認 |
 | ON/OFF コマンドからのアクション実行 | 未確認 |

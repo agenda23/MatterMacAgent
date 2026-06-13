@@ -82,6 +82,7 @@ fn dispatch_sidecar_message(app: &AppHandle, line: &[u8]) {
 
             if let Some(commissioned) = payload.get("commissioned").and_then(|v| v.as_bool()) {
                 *state.commissioned.lock().unwrap() = commissioned;
+                let _ = app.emit("commissioning-changed", payload);
             }
 
             let config = state.config.lock().unwrap().clone();
@@ -116,6 +117,13 @@ fn dispatch_sidecar_message(app: &AppHandle, line: &[u8]) {
         }
         Some("device_status") => {
             let _ = app.emit("device-status-changed", payload);
+        }
+        Some("commissioning_status") => {
+            if let Some(commissioned) = payload.get("commissioned").and_then(|v| v.as_bool()) {
+                let state = app.state::<AppState>();
+                *state.commissioned.lock().unwrap() = commissioned;
+                let _ = app.emit("commissioning-changed", payload);
+            }
         }
         Some("action_result") => {
             let success = payload
