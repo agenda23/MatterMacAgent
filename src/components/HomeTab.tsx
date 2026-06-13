@@ -59,6 +59,7 @@ export function HomeTab() {
     refresh().catch(console.error);
     const interval = setInterval(() => refresh().catch(console.error), 3000);
 
+    const unlistenOnline = listen("sidecar-online", () => setOnline(true));
     const unlistenOffline = listen("sidecar-offline", () => setOnline(false));
     const unlistenComm = listen<{ commissioned: boolean }>("commissioning-changed", (e) =>
       setCommissioned(e.payload.commissioned)
@@ -66,6 +67,7 @@ export function HomeTab() {
 
     return () => {
       clearInterval(interval);
+      void unlistenOnline.then((fn) => fn());
       void unlistenOffline.then((fn) => fn());
       void unlistenComm.then((fn) => fn());
     };

@@ -1,19 +1,22 @@
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     App, AppHandle, Manager,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 
+fn load_tray_icon() -> Result<Image<'static>, String> {
+    Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
+        .map_err(|e| format!("failed to load tray icon: {e}"))
+}
+
 pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
     let open_item = MenuItem::with_id(app, "open", "ダッシュボードを開く", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
 
-    let icon = app
-        .default_window_icon()
-        .ok_or("default window icon not found")?
-        .clone();
+    let icon = load_tray_icon()?;
 
     TrayIconBuilder::with_id("main-tray")
         .icon(icon)

@@ -4,6 +4,9 @@
 
 クラウドやIFTTTを経由せず、Google HomeやApple Homeから直接、極めて低遅延でMacを操作できる常駐型アプリケーションです。
 
+<!-- screenshots: docs/screenshots/tray.png -->
+<!-- screenshots: docs/screenshots/home-pairing.png -->
+
 ## 概要
 
 Matter Mac Agentは、**Tauri**・**React**・**matter.js** で構築された軽量なメニューバー常駐アプリです。Mac上で仮想的な**Matter Bridge**として動作し、QRコード1枚のスキャンだけでGoogle Home / Apple Home / Alexa に10個の仮想スイッチが独立したデバイスとして登録されます。
@@ -23,14 +26,26 @@ Matter Mac Agentは、**Tauri**・**React**・**matter.js** で構築された�
 |---|---|---|
 | 開発モード | 「Hey Siri, 開発モードをオンにして」 | VS Code起動・Docker起動・GitHubを開く |
 | 映画タイム | スマートホームのシーンをタップ | 輝度を下げ・通知ミュート・Netflixを開く |
-| インスタント・スリープ | 「Macを消して」 | 画面ロック＋スリープ |
-| ブラウザリロード | 物理スマートボタンを押す | アクティブなブラウザに Cmd+R を送信 |
+| おやすみモード | 「おやすみをオンにして」 | 集中モード ON・ミュージック停止 |
+| 朝の切り替え | ルーティンで自動実行 | Night Shift オフ・輝度を上げる |
+
+## スクリーンショット
+
+<!-- スクリーンショット撮影後にここを差し替える -->
+<!-- 推奨: docs/screenshots/ に配置し、以下の形式で埋め込む -->
+<!--
+| ホーム（ペアリング） | スイッチ管理 |
+|---|---|
+| ![home](docs/screenshots/home-pairing.png) | ![switches](docs/screenshots/switches.png) |
+-->
+
+> スクリーンショットは準備中です。
 
 ## 技術スタック
 
 | レイヤー | 技術 |
 |---|---|
-| フロントエンド | React 18 + TypeScript + Vite |
+| フロントエンド | React 19 + TypeScript + Vite |
 | デスクトップ | Tauri 2 (Rust) |
 | Matter サーバー | Node.js 20 + matter.js (Sidecar) |
 | パッケージマネージャ | pnpm |
@@ -47,11 +62,14 @@ Matter Mac Agentは、**Tauri**・**React**・**matter.js** で構築された�
 
 ```bash
 # リポジトリをクローン
-git clone https://github.com/your-username/matter-mac-agent.git
-cd matter-mac-agent
+git clone https://github.com/agenda23/MatterMacAgent.git
+cd MatterMacAgent
 
 # 依存パッケージのインストール（フロントエンド + Sidecar）
 pnpm install
+
+# Sidecar の開発用スタブを生成（初回・sidecar 変更後に必要）
+pnpm sidecar:build:stub
 
 # 開発モードで起動（ホットリロード有効）
 pnpm tauri dev
@@ -60,10 +78,12 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
+詳細は [ビルドマニュアル](docs/build-manual.md) を参照。
+
 ## プロジェクト構成
 
 ```
-matter-mac-agent/
+MatterMacAgent/
 ├── src/               # React フロントエンド
 ├── src-tauri/         # Rust / Tauri バックエンド
 │   ├── src/
@@ -71,13 +91,14 @@ matter-mac-agent/
 ├── sidecar/           # Node.js matter.js サーバー
 │   ├── src/
 │   └── package.json
+├── docs/              # ユーザーマニュアル・ビルドマニュアル・進捗
 ├── specs/             # 要件定義書・仕様書・設計書
 └── package.json
 ```
 
 ## セキュリティと権限
 
-本アプリはmacOSの**アクセシビリティ**および**オートメーション**権限を必要とします。
+本アプリはmacOSの**アクセシビリティ**権限を要求します。
 
 - 操作ログや個人情報をローカルネットワーク外部へ送信することは**一切ありません**
 - シェルコマンド・AppleScriptの実行機能はデフォルトで無効です。設定から「開発者モード」を明示的に有効にした場合のみ利用できます
@@ -85,7 +106,8 @@ matter-mac-agent/
 
 ## ドキュメント
 
-- [要件定義書](specs/要件定義書.md)
+- [ユーザーマニュアル](docs/user-manual.md)
+- [ビルドマニュアル](docs/build-manual.md)
 - [仕様書](specs/仕様書.md)
 - [設計書](specs/設計書.md)
 

@@ -203,12 +203,125 @@ pnpm tauri build          # .dmg / .app 生成
 
 ## 積み残し課題
 
+### 動作確認
+
 | 優先度 | 課題 | 詳細 |
 |---|---|---|
 | 高 | 実機ペアリング・ON/OFF 動作確認 | Google Home / Apple Home での E2E テスト未実施 |
-| 中 | アプリアイコン未設定 | Tauri デフォルトアイコンのまま。`.icns` / `.ico` 作成が必要 |
 | 低 | エラーログ収集 | Sidecar stderr を Rust 経由で保存・表示する仕組みが未実装 |
 | 低 | Intel Mac クロスビルド | aarch64 ホストから x86_64 ランチャーを生成する際、Node バイナリが同梱されずシステム Node 依存になる |
+
+### リリース向けアセット
+
+#### アプリアイコン（必須）
+
+現状は Tauri デフォルトのプレースホルダー（512×512）が入っているだけ。リリース前に専用アイコンを作成して差し替える必要がある。
+
+| 作業 | 詳細 |
+|---|---|
+| ソース PNG を作成 | **1024×1024px**、PNG、透過背景。`src-tauri/icons/icon-source.png` として保存 |
+| 派生ファイルを自動生成 | `pnpm tauri icon src-tauri/icons/icon-source.png` で `.icns` / `.ico` / 各サイズ PNG を一括生成 |
+
+**生成されるファイル（自動）**: `icon.icns`、`icon.ico`、`32x32.png`、`128x128.png`、`128x128@2x.png` など
+
+**nanobanana プロンプト（1024×1024 PNG）**:
+
+```yaml
+subject: macOS application icon for a smart home automation app "Matter Mac Agent"
+symbol: lightning bolt, bold geometric shape, centered
+style:
+  shape: squircle (Apple app icon shape, rounded corners)
+  surface: smooth gradient, subtle gloss
+  icon_style: macOS Ventura era, flat with depth
+colors:
+  background_gradient:
+    - from: "#0E9E73"
+    - to: "#096B4E"
+  symbol: white, slightly off-white inner glow
+  shadow: deep teal, inset bottom
+mood: professional, minimal, trustworthy, modern
+size: 1024x1024
+format: PNG
+background: transparent
+negative: text, wordmark, complex details, photorealistic elements, drop shadow outside icon shape, multiple symbols
+```
+
+#### メニューバーアイコン（推奨）
+
+現状は `default_window_icon()`（アプリアイコン）をトレイに流用している。macOS メニューバーには専用のテンプレートアイコンが必要。
+
+| 項目 | 仕様 |
+|---|---|
+| サイズ | 18×18px（@1x）/ 36×36px（@2x） |
+| 形式 | PNG、モノクロ（純黒）、透過背景 |
+| 理由 | `icon_as_template(true)` でシステムがライト/ダーク反転を自動処理するため、カラーなしで設計する |
+| 配置先 | `src-tauri/icons/tray-icon.png`、`src-tauri/icons/tray-icon@2x.png` |
+| 実装変更 | `tray.rs` の `default_window_icon()` をこのファイルを読み込む実装に変更する |
+
+**nanobanana プロンプト（36×36 PNG、@2x 用）**:
+
+```yaml
+subject: macOS menu bar template icon, lightning bolt symbol
+style:
+  stroke: single weight, SF Symbol style geometry
+  edges: pixel-perfect, crisp at small size
+  form: solid fill, no outline stroke
+colors:
+  symbol: pure black "#000000"
+  background: transparent
+size: 36x36
+format: PNG
+background: transparent
+note: used as macOS template icon (icon_as_template=true). Must be pure black on transparent — system handles light/dark inversion automatically.
+negative: color, gradient, shadow, glow, anti-aliasing artifacts, border, rounded container shape
+```
+
+#### スクリーンショット（README / GitHub 用）
+
+スクリーンショットはアプリを実機で起動して撮影する。AI 生成は不要。
+
+| ファイル名 | 内容 |
+|---|---|
+| `docs/screenshots/home-pairing.png` | ホームタブ — QR コードとペアリング情報が表示されている状態 |
+| `docs/screenshots/home-paired.png` | ホームタブ — ペアリング済みバッジが表示されている状態 |
+| `docs/screenshots/switches.png` | スイッチタブ — 10 個のスイッチにマクロが割り当てられている状態 |
+| `docs/screenshots/macros.png` | マクロタブ — マクロ一覧と編集画面 |
+| `docs/screenshots/tray.png` | メニューバー — トレイアイコンとクリック時のダッシュボード |
+
+推奨サイズ: **1280×800px**（Retina では @2x で撮影し 2倍サイズになる）
+
+#### DMG 背景画像（任意）
+
+| 項目 | 仕様 |
+|---|---|
+| サイズ | 660×400px |
+| 形式 | PNG |
+| 内容 | アプリアイコン → Applications フォルダへのドラッグ矢印 |
+| 配置先 | `src-tauri/dmg-background.png` |
+| 設定方法 | `tauri.conf.json` の `bundle.macOS.dmgBackground` に指定 |
+
+**nanobanana プロンプト（660×400 PNG）**:
+
+```yaml
+subject: macOS DMG installer background for "Matter Mac Agent"
+layout:
+  left: app icon placeholder (squircle, teal gradient, lightning bolt)
+  center: large arrow pointing right, medium gray
+  right: macOS Applications folder icon (system style)
+  spacing: balanced, generous whitespace
+style:
+  aesthetic: minimal, clean, macOS native
+  surface: flat, no texture
+colors:
+  background: light warm gray "#F0F0F2"
+  arrow: "#AAAAAF"
+  accent_hint: very subtle teal tint on background, barely visible
+mood: clean, uncluttered, professional installer
+size: 660x400
+format: PNG
+background: opaque
+negative: text, instructions, screenshots, gradients on background, dark mode, busy patterns, decorative elements
+```
 
 ---
 

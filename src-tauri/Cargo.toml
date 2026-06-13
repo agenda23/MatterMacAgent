@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # Pin time: 0.3.48 conflicts with cookie 0.18 on Rust 1.95+ (E0119 HourBase)
 time = "=0.3.47"
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-autostart = "2"

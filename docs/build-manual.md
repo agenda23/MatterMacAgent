@@ -326,3 +326,59 @@ icons/icon.ico
 ```bash
 pnpm tauri icon path/to/icon-1024.png
 ```
+
+### DMG の背景画像が表示されない
+
+背景画像は `src-tauri/dmg-background.png` に置き、`tauri.conf.json` で指定する。
+
+```json
+"macOS": {
+  "dmg": {
+    "background": "dmg-background.png",
+    "windowSize": { "width": 660, "height": 400 }
+  }
+}
+```
+
+| 項目 | 推奨値 |
+|---|---|
+| サイズ | 660×400px（`windowSize` と一致させる） |
+| 形式 | PNG |
+| 配置先 | `src-tauri/dmg-background.png` |
+
+画像を差し替えたあとは `pnpm tauri build` を再実行する。既存の `.dmg` を開いたままでは反映されない。
+
+> **補足**: 背景画像にはアプリアイコン・Applications フォルダへの矢印などを描画しておく。Tauri が配置するアイコンと重なるよう、progress.md の DMG 背景仕様を参照する。
+
+### `bundle_dmg.sh` で DMG ビルドが失敗する
+
+エラー例:
+
+```
+failed to bundle project error running bundle_dmg.sh
+```
+
+よくある原因は、**前回ビルドや手動で開いた DMG のマウントが残っている**ことです。
+
+```bash
+# 1. 残留ボリュームをアンマウント
+hdiutil detach "/Volumes/Matter Mac Agent" -force 2>/dev/null || true
+
+# 2. 一時ファイルを削除
+rm -f src-tauri/target/release/bundle/dmg/rw.*.dmg 2>/dev/null || true
+
+# 3. 再ビルド（クリーンアップ込み）
+pnpm tauri:build
+```
+
+詳細ログを見る場合:
+
+```bash
+pnpm tauri build --verbose 2>&1 | rg -i "bundle_dmg|AppleScript|error|failed"
+```
+
+`.app` だけ必要な場合は DMG をスキップできる:
+
+```bash
+pnpm tauri build --bundles app
+```

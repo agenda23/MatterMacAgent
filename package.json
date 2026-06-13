@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "pnpm sidecar:build:stub && pnpm tauri dev",
-    "tauri:build": "pnpm tauri build",
+    "tauri:build": "bash scripts/clean-dmg-build.sh && pnpm tauri build",
     "tauri:build:universal": "pnpm tauri build --target universal-apple-darwin",
     "sidecar:dev": "pnpm --filter @matter-mac-agent/sidecar dev",
     "sidecar:build": "pnpm --filter @matter-mac-agent/sidecar build",

@@ -34,10 +34,22 @@ pub fn spawn_sidecar(app: &AppHandle) -> Result<(), String> {
                 CommandEvent::Stdout(line) => {
                     dispatch_sidecar_message(&app_handle, &line);
                 }
-                CommandEvent::Terminated(_) => {
+                CommandEvent::Stderr(line) => {
+                    let text = String::from_utf8_lossy(&line).trim().to_string();
+                    if !text.is_empty() {
+                        eprintln!("[sidecar] {text}");
+                        let _ = app_handle.emit("sidecar-log", text);
+                    }
+                }
+                CommandEvent::Terminated(payload) => {
                     let state = app_handle.state::<AppState>();
                     *state.sidecar_online.lock().unwrap() = false;
                     let _ = app_handle.emit("sidecar-offline", ());
+                    if let Some(code) = payload.code {
+                        if code != 0 {
+                            eprintln!("[sidecar] exited with code {code}");
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -79,6 +91,7 @@ fn dispatch_sidecar_message(app: &AppHandle, line: &[u8]) {
         Some("ready") => {
             let state = app.state::<AppState>();
             *state.sidecar_online.lock().unwrap() = true;
+            let _ = app.emit("sidecar-online", ());
 
             if let Some(commissioned) = payload.get("commissioned").and_then(|v| v.as_bool()) {
                 *state.commissioned.lock().unwrap() = commissioned;

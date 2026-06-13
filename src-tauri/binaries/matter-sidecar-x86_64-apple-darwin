@@ -1,4 +1,74 @@
 #!/bin/bash
 set -euo pipefail
-cd "/Volumes/SSD/workspace/MatterMacAgent"
-exec pnpm --filter @matter-mac-agent/sidecar exec tsx src/index.ts
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CACHE_DIR="${MATTER_SIDECAR_RUNTIME:-$HOME/Library/Application Support/com.matter-mac-agent/sidecar-runtime}"
+NODE_REL="node-x64/bin/node"
+
+resolve_runtime_dir() {
+  if [ -f "$SCRIPT_DIR/sidecar-runtime/bundle.cjs" ]; then
+    echo "$SCRIPT_DIR/sidecar-runtime"
+    return
+  fi
+
+  local tarball=""
+  for candidate in \
+    "$SCRIPT_DIR/../Resources/binaries/sidecar-runtime.tar.gz" \
+    "$SCRIPT_DIR/../Resources/sidecar-runtime.tar.gz" \
+    "$SCRIPT_DIR/sidecar-runtime.tar.gz"; do
+    if [ -f "$candidate" ]; then
+      tarball="$candidate"
+      break
+    fi
+  done
+
+  if [ -n "$tarball" ]; then
+    mkdir -p "$CACHE_DIR"
+    local needs_extract=0
+    if [ ! -f "$CACHE_DIR/bundle.cjs" ]; then
+      needs_extract=1
+    elif [ ! -f "$CACHE_DIR/.runtime-version" ]; then
+      needs_extract=1
+    elif [ "$(cat "$CACHE_DIR/.runtime-version")" != "0.1.0" ]; then
+      needs_extract=1
+    elif [ "$tarball" -nt "$CACHE_DIR/bundle.cjs" ]; then
+      needs_extract=1
+    fi
+
+    if [ "$needs_extract" = "1" ]; then
+      rm -rf "$CACHE_DIR"
+      mkdir -p "$CACHE_DIR"
+      tar -xzf "$tarball" -C "$CACHE_DIR"
+    fi
+    echo "$CACHE_DIR"
+    return
+  fi
+
+  if [ -f "$CACHE_DIR/bundle.cjs" ]; then
+    echo "$CACHE_DIR"
+    return
+  fi
+
+  echo "sidecar runtime archive not found" >&2
+  exit 1
+}
+
+RUNTIME_DIR="$(resolve_runtime_dir)"
+ENTRY="$RUNTIME_DIR/bundle.cjs"
+NODE_BIN="$RUNTIME_DIR/$NODE_REL"
+
+if [ ! -f "$ENTRY" ]; then
+  echo "sidecar entry not found: $ENTRY" >&2
+  exit 1
+fi
+
+if [ -x "$NODE_BIN" ]; then
+  exec "$NODE_BIN" "$ENTRY"
+fi
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$ENTRY"
+fi
+
+echo "Node.js runtime not found. Install Node.js 20+ or rebuild sidecar." >&2
+exit 1

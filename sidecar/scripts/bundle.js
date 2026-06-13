@@ -10,6 +10,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -20,6 +21,10 @@ import * as esbuild from "esbuild";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const sidecarRoot = join(__dirname, "..");
 const repoRoot = join(sidecarRoot, "..");
+const rootPackage = JSON.parse(
+  readFileSync(join(repoRoot, "package.json"), "utf8")
+);
+const RUNTIME_VERSION = rootPackage.version;
 const binariesDir = join(repoRoot, "src-tauri", "binaries");
 const runtimeDir = join(binariesDir, "sidecar-runtime");
 const cacheDir = join(sidecarRoot, ".cache");
@@ -66,13 +71,9 @@ resolve_runtime_dir() {
     return
   fi
 
-  if [ -f "$CACHE_DIR/bundle.cjs" ]; then
-    echo "$CACHE_DIR"
-    return
-  fi
-
   local tarball=""
   for candidate in \\
+    "$SCRIPT_DIR/../Resources/binaries/sidecar-runtime.tar.gz" \\
     "$SCRIPT_DIR/../Resources/sidecar-runtime.tar.gz" \\
     "$SCRIPT_DIR/sidecar-runtime.tar.gz"; do
     if [ -f "$candidate" ]; then
@@ -81,14 +82,35 @@ resolve_runtime_dir() {
     fi
   done
 
-  if [ -z "$tarball" ]; then
-    echo "sidecar runtime archive not found" >&2
-    exit 1
+  if [ -n "$tarball" ]; then
+    mkdir -p "$CACHE_DIR"
+    local needs_extract=0
+    if [ ! -f "$CACHE_DIR/bundle.cjs" ]; then
+      needs_extract=1
+    elif [ ! -f "$CACHE_DIR/.runtime-version" ]; then
+      needs_extract=1
+    elif [ "$(cat "$CACHE_DIR/.runtime-version")" != "${RUNTIME_VERSION}" ]; then
+      needs_extract=1
+    elif [ "$tarball" -nt "$CACHE_DIR/bundle.cjs" ]; then
+      needs_extract=1
+    fi
+
+    if [ "$needs_extract" = "1" ]; then
+      rm -rf "$CACHE_DIR"
+      mkdir -p "$CACHE_DIR"
+      tar -xzf "$tarball" -C "$CACHE_DIR"
+    fi
+    echo "$CACHE_DIR"
+    return
   fi
 
-  mkdir -p "$CACHE_DIR"
-  tar -xzf "$tarball" -C "$CACHE_DIR"
-  echo "$CACHE_DIR"
+  if [ -f "$CACHE_DIR/bundle.cjs" ]; then
+    echo "$CACHE_DIR"
+    return
+  fi
+
+  echo "sidecar runtime archive not found" >&2
+  exit 1
 }
 
 RUNTIME_DIR="$(resolve_runtime_dir)"
@@ -148,6 +170,10 @@ function deployDependencies() {
     recursive: true,
   });
   cpSync(join(deployDir, "package.json"), join(runtimeDir, "package.json"));
+  writeFileSync(
+    join(runtimeDir, ".runtime-version"),
+    `${RUNTIME_VERSION}\n`
+  );
 }
 
 function ensureNodeBinary(nodeArch) {
